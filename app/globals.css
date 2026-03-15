@@ -1,0 +1,108 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+@layer base {
+  :root {
+    --background: #f0f9ff;
+    --foreground: #0f172a;
+    --muted: #64748b;
+    --surface: rgba(255,255,255,0.7);
+    --border: rgba(0,0,0,0.06);
+    --accent: #0EA5E9;
+    --accent-gradient: linear-gradient(135deg, #06b6d4, #2563eb);
+    --success: #10b981;
+    --warning: #f59e0b;
+    --danger: #ef4444;
+  }
+  .dark {
+    --background: #0a0a0f;
+    --foreground: #f1f5f9;
+    --muted: #94a3b8;
+    --surface: rgba(26,26,46,0.8);
+    --border: rgba(255,255,255,0.06);
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    color: var(--foreground);
+    background: var(--background);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  .dark body { background: #0a0a0f; color: #f1f5f9; }
+}
+
+@layer components {
+  .glass-card {
+    @apply backdrop-blur-xl border rounded-2xl;
+    background: var(--surface);
+    border-color: var(--border);
+    box-shadow: 0 8px 30px rgb(0 0 0 / 0.06);
+  }
+  .dark .glass-card {
+    box-shadow: 0 8px 30px rgb(0 0 0 / 0.3);
+  }
+  .gradient-bg {
+    background: linear-gradient(135deg, #f0f9ff 0%, #f5f3ff 50%, #fff1f2 100%);
+    background-size: 400% 400%;
+    animation: gradient 15s ease infinite;
+  }
+  .dark .gradient-bg {
+    background: #0a0a0f;
+    animation: none;
+  }
+  .btn-primary {
+    @apply px-4 py-2.5 rounded-xl font-medium text-white transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0;
+    background: linear-gradient(135deg, #06b6d4, #2563eb);
+  }
+  .btn-outline {
+    @apply px-4 py-2.5 rounded-xl font-medium border transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 active:translate-y-0;
+    border-color: var(--border);
+    color: var(--foreground);
+  }
+  .dark .btn-outline { border-color: rgba(255,255,255,0.1); }
+  .input-field {
+    @apply w-full px-4 py-2.5 rounded-xl border text-sm transition-all duration-200 outline-none;
+    background: var(--surface);
+    border-color: var(--border);
+    color: var(--foreground);
+  }
+  .input-field:focus {
+    @apply ring-2 ring-cyan-500/30 border-cyan-500;
+  }
+  .skeleton {
+    @apply animate-pulse rounded-xl;
+    background: linear-gradient(90deg, rgba(0,0,0,0.04) 25%, rgba(0,0,0,0.08) 50%, rgba(0,0,0,0.04) 75%);
+    background-size: 200% 100%;
+  }
+  .dark .skeleton {
+    background: linear-gradient(90deg, rgba(255,255,255,0.04) 25%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.04) 75%);
+    background-size: 200% 100%;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 3px; }
+.dark ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); }
+
+/* Markdown styles for AI chat */
+.markdown-content h1 { @apply text-xl font-bold mt-4 mb-2; }
+.markdown-content h2 { @apply text-lg font-semibold mt-3 mb-2; }
+.markdown-content h3 { @apply text-base font-semibold mt-2 mb-1; }
+.markdown-content p { @apply mb-2 leading-relaxed; }
+.markdown-content ul { @apply list-disc pl-5 mb-2; }
+.markdown-content ol { @apply list-decimal pl-5 mb-2; }
+.markdown-content li { @apply mb-1; }
+.markdown-content code { @apply bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded text-sm font-mono; }
+.markdown-content pre { @apply bg-gray-100 dark:bg-gray-800 p-3 rounded-lg overflow-x-auto mb-3; }
+.markdown-content pre code { @apply bg-transparent p-0; }
+.markdown-content blockquote { @apply border-l-4 border-cyan-500 pl-4 italic text-gray-600 dark:text-gray-400 mb-2; }
+.markdown-content a { @apply text-cyan-600 dark:text-cyan-400 underline; }
+.markdown-content table { @apply w-full border-collapse mb-3; }
+.markdown-content th, .markdown-content td { @apply border border-gray-200 dark:border-gray-700 px-3 py-1.5 text-sm; }
+.markdown-content th { @apply bg-gray-50 dark:bg-gray-800 font-semibold; }
