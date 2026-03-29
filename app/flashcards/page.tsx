@@ -16,10 +16,11 @@ import {
   Library,
   Layers,
   Trophy,
+  Trash2,
+  PenLine,
 } from 'lucide-react'
 import AppShell from '@/components/layout/AppShell'
 import LoadingSkeleton from '@/components/common/LoadingSkeleton'
-import { getSupabase } from '@/lib/supabase/client'
 import { FlashcardDeck, Flashcard, LibraryFile } from '@/lib/types'
 import { formatDate } from '@/lib/utils'
 
@@ -59,11 +60,16 @@ export default function FlashcardsPage() {
   const [studyComplete, setStudyComplete] = useState(false)
   const [cardsLoading, setCardsLoading] = useState(false)
 
+  // Manual deck creation
+  const [showCreateDeck, setShowCreateDeck] = useState(false)
+  const [createTitle, setCreateTitle] = useState('')
+  const [manualCards, setManualCards] = useState([{ front: '', back: '' }])
+  const [creatingDeck, setCreatingDeck] = useState(false)
+  const [confirmDeleteDeck, setConfirmDeleteDeck] = useState<string | null>(null)
+
   useEffect(() => {
     const init = async () => {
-      const { data: { session } } = await getSupabase().auth.getSession()
-      if (!session?.user) { router.push('/login'); return }
-      const uid = session.user.id
+      const uid = 'test-user-id'
       setUserId(uid)
 
       const [decksRes, filesRes] = await Promise.all([
@@ -81,7 +87,7 @@ export default function FlashcardsPage() {
       setLoading(false)
     }
     init()
-  }, [router])
+  }, [])
 
   const handleGenerate = async () => {
     if (!userId || (!genContent.trim() && !selectedFileId)) return
@@ -106,9 +112,42 @@ export default function FlashcardsPage() {
         setGenContent('')
         setGenTitle('')
         setSelectedFileId('')
+      } else {
+        const err = await res.json()
+        console.error('Generate error:', err)
       }
     } catch {}
     setGenerating(false)
+  }
+
+  const handleCreateDeck = async () => {
+    if (!userId || !createTitle.trim()) return
+    setCreatingDeck(true)
+    const validCards = manualCards.filter((c) => c.front.trim() && c.back.trim())
+    const res = await fetch('/api/flashcards', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_id: userId,
+        title: createTitle.trim(),
+        cards: validCards,
+      }),
+    })
+    if (res.ok) {
+      const decksRes = await fetch(`/api/flashcards?user_id=${userId}`)
+      const decksData = await decksRes.json()
+      setDecks(Array.isArray(decksData) ? decksData : [])
+      setShowCreateDeck(false)
+      setCreateTitle('')
+      setManualCards([{ front: '', back: '' }])
+    }
+    setCreatingDeck(false)
+  }
+
+  const handleDeleteDeck = async (id: string) => {
+    await fetch(`/api/flashcards/${id}`, { method: 'DELETE' })
+    setDecks((prev) => prev.filter((d) => d.id !== id))
+    setConfirmDeleteDeck(null)
   }
 
   const startStudy = async (deck: DeckWithCount) => {
@@ -369,6 +408,76 @@ export default function FlashcardsPage() {
           </p>
         </motion.div>
 
+        {/* Create Manually Button */}
+        <motion.div custom={1} variants={fadeUp} initial="hidden" animate="visible">
+          <button
+            onClick={() => setShowCreateDeck(!showCreateDeck)}
+            className="btn-outline flex items-center gap-2 text-sm"
+          >
+            <PenLine className="w-4 h-4" />
+            {showCreateDeck ? 'Cancel' : 'Create Deck Manually'}
+          </button>
+        </motion.div>
+
+        {/* Manual Create Form */}
+        <AnimatePresence>
+          {showCreateDeck && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="overflow-hidden"
+            >
+              <div className="glass-card p-5 space-y-3">
+                <h2 className="font-semibold">New Deck</h2>
+                <input
+                  type="text"
+                  placeholder="Deck title"
+                  value={createTitle}
+                  onChange={(e) => setCreateTitle(e.target.value)}
+                  className="input-field"
+                />
+                <div className="space-y-2">
+                  {manualCards.map((card, i) => (
+                    <div key={i} className="grid grid-cols-2 gap-2">
+                      <input
+                        type="text"
+                        placeholder={`Card ${i + 1} Front`}
+                        value={card.front}
+                        onChange={(e) => setManualCards((prev) => prev.map((c, j) => j === i ? { ...c, front: e.target.value } : c))}
+                        className="input-field text-sm"
+                      />
+                      <input
+                        type="text"
+                        placeholder={`Card ${i + 1} Back`}
+                        value={card.back}
+                        onChange={(e) => setManualCards((prev) => prev.map((c, j) => j === i ? { ...c, back: e.target.value } : c))}
+                        className="input-field text-sm"
+                      />
+                    </div>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setManualCards((prev) => [...prev, { front: '', back: '' }])}
+                    className="btn-outline text-xs flex items-center gap-1"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Add Card
+                  </button>
+                  <button
+                    onClick={handleCreateDeck}
+                    disabled={creatingDeck || !createTitle.trim()}
+                    className="btn-primary text-sm flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    {creatingDeck ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                    {creatingDeck ? 'Creating...' : 'Create Deck'}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* Generate Section */}
         <motion.div custom={1} variants={fadeUp} initial="hidden" animate="visible" className="glass-card p-5">
           <div className="flex items-center gap-2 mb-1">
@@ -465,11 +574,25 @@ export default function FlashcardsPage() {
                   </div>
                   <button
                     onClick={() => startStudy(deck)}
-                    className="btn-primary w-full text-xs mt-3 flex items-center justify-center gap-1.5"
+                    className="btn-primary flex-1 text-xs mt-3 flex items-center justify-center gap-1.5"
                   >
                     <BookOpen className="w-3.5 h-3.5" />
                     Study
                   </button>
+                  {confirmDeleteDeck === deck.id ? (
+                    <div className="flex gap-1 mt-3">
+                      <button onClick={() => handleDeleteDeck(deck.id)} className="text-xs px-2 py-1.5 rounded-lg bg-red-100 dark:bg-red-900/30 text-red-600 font-medium flex-1">Confirm</button>
+                      <button onClick={() => setConfirmDeleteDeck(null)} className="text-xs px-2 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 flex-1">Cancel</button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setConfirmDeleteDeck(deck.id)}
+                      className="btn-outline text-xs mt-3 w-full flex items-center justify-center gap-1.5 text-red-500 border-red-200 dark:border-red-800 hover:bg-red-50 dark:hover:bg-red-900/20"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      Delete
+                    </button>
+                  )}
                 </motion.div>
               ))}
             </div>

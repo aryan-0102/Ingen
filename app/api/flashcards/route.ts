@@ -1,100 +1,114 @@
-export const dynamic = "force-dynamic"
-
-import { createServiceClient } from '@/lib/supabase/server'
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server';
+import { db } from '@/lib/db';
+import { getSession } from '@/lib/auth';
+import { ensureMockUser } from '@/lib/seed-user';
 
 export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url)
-    const userId = searchParams.get('user_id')
+    await ensureMockUser();
 
-    if (!userId) {
+    const session = getSession();
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    const userId = session.id;
+
+    const deckId = request.nextUrl.searchParams.get('deck_id');
+
+    // If deck_id is provided, return the cards for that deck (study mode)
+    if (deckId) {
+      const deck = await db.flashcardDeck.findUnique({
+        where: { id: deckId },
+        include: { cards: { orderBy: { createdAt: 'asc' } } },
+      });
+
+      if (!deck || deck.creatorId !== userId) {
+        return NextResponse.json({ error: 'Deck not found' }, { status: 404 });
+      }
+
       return NextResponse.json(
-        { error: 'user_id is required' },
-        { status: 400 }
-      )
+        deck.cards.map((c) => ({
+          id: c.id,
+          deck_id: c.deckId,
+          front: c.front,
+          back: c.back,
+          confidence: c.confidence,
+          last_reviewed: c.lastReviewed,
+          created_at: c.createdAt,
+        }))
+      );
     }
 
-    const supabase = createServiceClient()
+    // Otherwise return all decks for user
+    const decks = await db.flashcardDeck.findMany({
+      where: { creatorId: userId },
+      include: {
+        _count: {
+          select: { cards: true }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
 
-    const { data: decks, error } = await supabase
-      .from('flashcard_decks')
-      .select('*')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false })
+    const decksWithCounts = decks.map(deck => ({
+      id: deck.id,
+      user_id: deck.creatorId,
+      title: deck.title,
+      source_file_id: null,
+      created_at: deck.createdAt,
+      card_count: deck._count.cards
+    }));
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
-
-    // Get card counts for each deck
-    const decksWithCounts = await Promise.all(
-      (decks || []).map(async (deck) => {
-        const { count } = await supabase
-          .from('flashcards')
-          .select('*', { count: 'exact', head: true })
-          .eq('deck_id', deck.id)
-
-        return { ...deck, card_count: count || 0 }
-      })
-    )
-
-    return NextResponse.json(decksWithCounts)
+    return NextResponse.json(decksWithCounts);
   } catch (error) {
-    console.error('List flashcard decks error:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    console.error('List flashcard decks error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const { user_id, title, source_file_id, cards } = await request.json()
+    await ensureMockUser();
 
-    if (!user_id || !title) {
-      return NextResponse.json(
-        { error: 'user_id and title are required' },
-        { status: 400 }
-      )
+    const session = getSession();
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    const userId = session.id;
+
+    const { title, cards } = await request.json();
+
+    if (!title) {
+      return NextResponse.json({ error: 'title is required' }, { status: 400 });
     }
 
-    const supabase = createServiceClient()
-
-    // Create deck
-    const { data: deck, error: deckError } = await supabase
-      .from('flashcard_decks')
-      .insert({
-        user_id,
+    // Create deck and optionally cards in a transaction
+    const deck = await db.flashcardDeck.create({
+      data: {
         title,
-        source_file_id: source_file_id || null,
-      })
-      .select()
-      .single()
-
-    if (deckError) {
-      return NextResponse.json({ error: deckError.message }, { status: 500 })
-    }
-
-    // Insert cards if provided
-    if (cards && cards.length > 0) {
-      const cardRows = cards.map((card: { front: string; back: string }) => ({
-        deck_id: deck.id,
-        front: card.front,
-        back: card.back,
-        mastered: false,
-      }))
-
-      const { error: cardsError } = await supabase
-        .from('flashcards')
-        .insert(cardRows)
-
-      if (cardsError) {
-        return NextResponse.json({ error: cardsError.message }, { status: 500 })
+        creatorId: userId,
+        cards: cards && cards.length > 0 ? {
+          create: cards.map((c: { front: string; back: string }) => ({
+            front: c.front,
+            back: c.back,
+            confidence: 0,
+          }))
+        } : undefined
+      },
+      include: {
+        _count: { select: { cards: true } }
       }
-    }
+    });
 
-    return NextResponse.json({ ...deck, card_count: cards?.length || 0 })
+    return NextResponse.json({
+      id: deck.id,
+      user_id: deck.creatorId,
+      title: deck.title,
+      created_at: deck.createdAt,
+      card_count: deck._count.cards,
+    });
   } catch (error) {
-    console.error('Create flashcard deck error:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    console.error('Create flashcard deck error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

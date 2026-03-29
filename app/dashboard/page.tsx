@@ -19,7 +19,6 @@ import {
 } from 'lucide-react'
 import AppShell from '@/components/layout/AppShell'
 import LoadingSkeleton from '@/components/common/LoadingSkeleton'
-import { getSupabase } from '@/lib/supabase/client'
 import { DashboardStats, Class, LibraryFile, CalendarEvent } from '@/lib/types'
 import {
   getGreeting,
@@ -64,38 +63,17 @@ export default function DashboardPage() {
 
   useEffect(() => {
     const init = async () => {
-      const {
-        data: { session },
-      } = await getSupabase().auth.getSession()
-
-      if (!session?.user) {
-        router.push('/login')
-        return
-      }
-
-      const uid = session.user.id
+      const uid = 'test-user-id'
       setUserId(uid)
 
-      // Seed demo data for admin on first load
-      const isAdmin = session.user.email === 'admin@g'
-      if (isAdmin) {
-        try {
-          await fetch('/api/seed', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ user_id: uid }),
-          })
-        } catch {}
-      }
-
-      // Fetch profile name
-      const { data: profile } = await getSupabase()
-        .from('profiles')
-        .select('full_name')
-        .eq('id', uid)
-        .single()
-
-      if (profile) setUserName(profile.full_name || 'there')
+      // Fetch profile name from custom backend
+      try {
+        const profileRes = await fetch(`/api/profile?user_id=${uid}`)
+        if (profileRes.ok) {
+          const profile = await profileRes.json()
+          if (profile) setUserName(profile.full_name || 'there')
+        }
+      } catch {}
 
       // Fetch all data in parallel
       const [statsRes, classesRes, filesRes, eventsRes] = await Promise.all([
@@ -120,7 +98,7 @@ export default function DashboardPage() {
     }
 
     init()
-  }, [router])
+  }, [])
 
   const todayDow = new Date().getDay()
   const todayEvents = events.filter((e) => e.day_of_week === todayDow)

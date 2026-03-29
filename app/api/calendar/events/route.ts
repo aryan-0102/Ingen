@@ -1,95 +1,111 @@
-export const dynamic = "force-dynamic"
+export const dynamic = 'force-dynamic';
 
-import { createServiceClient } from '@/lib/supabase/server'
-import { NextRequest, NextResponse } from 'next/server'
+import { db } from '@/lib/db';
+import { getSession } from '@/lib/auth';
+import { NextRequest, NextResponse } from 'next/server';
+import { ensureMockUser } from '@/lib/seed-user';
 
 export async function GET(request: NextRequest) {
   try {
-    const userId = request.nextUrl.searchParams.get('user_id')
+    await ensureMockUser();
 
-    if (!userId) {
-      return NextResponse.json({ error: 'user_id is required' }, { status: 400 })
+    const session = getSession();
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+    const userId = session.id;
 
-    const supabase = createServiceClient()
+    const events = await db.calendarEvent.findMany({
+      where: { userId },
+      orderBy: [{ dayOfWeek: 'asc' }, { startTime: 'asc' }],
+    });
 
-    const { data: events, error } = await supabase
-      .from('calendar_events')
-      .select('*')
-      .eq('user_id', userId)
-      .order('day_of_week', { ascending: true })
-      .order('start_time', { ascending: true })
+    const formatted = events.map((e) => ({
+      id: e.id,
+      user_id: e.userId,
+      title: e.title,
+      event_type: e.eventType,
+      day_of_week: e.dayOfWeek,
+      start_time: e.startTime,
+      end_time: e.endTime,
+      subject: e.subject,
+      color: e.color,
+      created_at: e.createdAt,
+    }));
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
-
-    return NextResponse.json({ events: events || [] })
+    return NextResponse.json(formatted);
   } catch (error) {
-    console.error('Calendar events GET error:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    console.error('Calendar events GET error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const { user_id, title, event_type, day_of_week, start_time, end_time, subject, color } =
-      await request.json()
+    await ensureMockUser();
 
-    if (!user_id || !title || !event_type || day_of_week === undefined || !start_time || !end_time) {
+    const session = getSession();
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    const userId = session.id;
+
+    const { title, event_type, day_of_week, start_time, end_time, subject, color } =
+      await request.json();
+
+    if (!title || !event_type || day_of_week === undefined || !start_time || !end_time) {
       return NextResponse.json(
-        { error: 'user_id, title, event_type, day_of_week, start_time, and end_time are required' },
+        { error: 'title, event_type, day_of_week, start_time, and end_time are required' },
         { status: 400 }
-      )
+      );
     }
 
-    const supabase = createServiceClient()
-
-    const { data, error } = await supabase
-      .from('calendar_events')
-      .insert({
-        user_id,
+    const event = await db.calendarEvent.create({
+      data: {
+        userId,
         title,
-        event_type,
-        day_of_week,
-        start_time,
-        end_time,
+        eventType: event_type,
+        dayOfWeek: day_of_week,
+        startTime: start_time,
+        endTime: end_time,
         subject: subject || null,
         color: color || null,
-      })
-      .select()
-      .single()
+      },
+    });
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
-
-    return NextResponse.json({ event: data })
+    return NextResponse.json({
+      event: {
+        id: event.id,
+        user_id: event.userId,
+        title: event.title,
+        event_type: event.eventType,
+        day_of_week: event.dayOfWeek,
+        start_time: event.startTime,
+        end_time: event.endTime,
+        subject: event.subject,
+        color: event.color,
+        created_at: event.createdAt,
+      },
+    });
   } catch (error) {
-    console.error('Calendar events POST error:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    console.error('Calendar events POST error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
 
 export async function DELETE(request: NextRequest) {
   try {
-    const id = request.nextUrl.searchParams.get('id')
+    const id = request.nextUrl.searchParams.get('id');
 
     if (!id) {
-      return NextResponse.json({ error: 'id is required' }, { status: 400 })
+      return NextResponse.json({ error: 'id is required' }, { status: 400 });
     }
 
-    const supabase = createServiceClient()
+    await db.calendarEvent.delete({ where: { id } });
 
-    const { error } = await supabase.from('calendar_events').delete().eq('id', id)
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
-
-    return NextResponse.json({ message: 'Event deleted' })
+    return NextResponse.json({ message: 'Event deleted' });
   } catch (error) {
-    console.error('Calendar events DELETE error:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    console.error('Calendar events DELETE error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

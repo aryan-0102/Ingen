@@ -1,30 +1,30 @@
-import { createServiceClient } from '@/lib/supabase/server'
-import { NextRequest, NextResponse } from 'next/server'
+import { db } from '@/lib/db';
+import { ensureMockUser } from '@/lib/seed-user';
+import { NextRequest, NextResponse } from 'next/server';
 
 export async function POST(request: NextRequest) {
   try {
-    const { user_id } = await request.json()
+    const { user_id } = await request.json();
 
     if (!user_id) {
       return NextResponse.json(
         { error: 'user_id is required' },
         { status: 400 }
-      )
+      );
     }
 
-    const supabase = createServiceClient()
+    await ensureMockUser();
 
-    // Check if already seeded (user has classes)
-    const { count } = await supabase
-      .from('class_members')
-      .select('*', { count: 'exact', head: true })
-      .eq('user_id', user_id)
+    // Check if already seeded (user has class memberships)
+    const existingCount = await db.classMember.count({
+      where: { userId: user_id },
+    });
 
-    if (count && count > 0) {
-      return NextResponse.json({ message: 'Already seeded', seeded: false })
+    if (existingCount > 0) {
+      return NextResponse.json({ message: 'Already seeded', seeded: false });
     }
 
-    // Create 3 demo classes
+    // Create 3 demo classes with memberships
     const classesData = [
       {
         name: 'Calculus II',
@@ -32,7 +32,6 @@ export async function POST(request: NextRequest) {
         code: 'MATH02',
         description: 'Advanced integration techniques and series',
         color: '#6366f1',
-        creator_id: user_id,
       },
       {
         name: 'Physics 101',
@@ -40,7 +39,6 @@ export async function POST(request: NextRequest) {
         code: 'PHYS01',
         description: 'Classical mechanics and thermodynamics',
         color: '#f59e0b',
-        creator_id: user_id,
       },
       {
         name: 'Intro to CS',
@@ -48,194 +46,219 @@ export async function POST(request: NextRequest) {
         code: 'COMP01',
         description: 'Algorithms, data structures, and programming',
         color: '#10b981',
-        creator_id: user_id,
       },
-    ]
+    ];
 
-    const { data: classes, error: classError } = await supabase
-      .from('classes')
-      .insert(classesData)
-      .select()
+    const createdClasses = [];
+    for (const cls of classesData) {
+      // Check if class code already exists
+      const existing = await db.class.findFirst({ where: { code: cls.code } });
+      if (existing) {
+        createdClasses.push(existing);
+        // Ensure membership exists
+        const memberExists = await db.classMember.findFirst({
+          where: { classId: existing.id, userId: user_id },
+        });
+        if (!memberExists) {
+          await db.classMember.create({
+            data: { classId: existing.id, userId: user_id, role: 'owner' },
+          });
+        }
+        continue;
+      }
 
-    if (classError) {
-      return NextResponse.json({ error: classError.message }, { status: 500 })
+      const newClass = await db.class.create({
+        data: {
+          name: cls.name,
+          subject: cls.subject,
+          code: cls.code,
+          description: cls.description,
+          color: cls.color,
+          creatorId: user_id,
+          members: {
+            create: { userId: user_id, role: 'owner' },
+          },
+        },
+      });
+      createdClasses.push(newClass);
     }
-
-    // Add user as owner of each class
-    const memberships = (classes || []).map((c) => ({
-      class_id: c.id,
-      user_id,
-      role: 'owner' as const,
-    }))
-
-    await supabase.from('class_members').insert(memberships)
 
     // Create 5 demo library files
     const filesData = [
       {
-        user_id,
-        class_id: classes?.[0]?.id,
-        file_name: 'Integration_Techniques.pdf',
-        file_type: 'application/pdf',
-        file_size: 2456000,
-        storage_path: `${user_id}/demo_integration.pdf`,
-        tags: ['calculus', 'integration'],
+        name: 'Integration_Techniques.pdf',
+        fileType: 'application/pdf',
+        fileSize: 2456000,
+        url: '/uploads/demo_integration.pdf',
+        tags: JSON.stringify(['calculus', 'integration']),
+        classId: createdClasses[0]?.id || null,
+        uploadedById: user_id,
       },
       {
-        user_id,
-        class_id: classes?.[0]?.id,
-        file_name: 'Series_Convergence_Notes.pdf',
-        file_type: 'application/pdf',
-        file_size: 1823000,
-        storage_path: `${user_id}/demo_series.pdf`,
-        tags: ['calculus', 'series'],
+        name: 'Series_Convergence_Notes.pdf',
+        fileType: 'application/pdf',
+        fileSize: 1823000,
+        url: '/uploads/demo_series.pdf',
+        tags: JSON.stringify(['calculus', 'series']),
+        classId: createdClasses[0]?.id || null,
+        uploadedById: user_id,
       },
       {
-        user_id,
-        class_id: classes?.[1]?.id,
-        file_name: 'Newton_Laws_Summary.pdf',
-        file_type: 'application/pdf',
-        file_size: 984000,
-        storage_path: `${user_id}/demo_newton.pdf`,
-        tags: ['physics', 'mechanics'],
+        name: 'Newton_Laws_Summary.pdf',
+        fileType: 'application/pdf',
+        fileSize: 984000,
+        url: '/uploads/demo_newton.pdf',
+        tags: JSON.stringify(['physics', 'mechanics']),
+        classId: createdClasses[1]?.id || null,
+        uploadedById: user_id,
       },
       {
-        user_id,
-        class_id: classes?.[1]?.id,
-        file_name: 'Thermodynamics_Formulas.png',
-        file_type: 'image/png',
-        file_size: 567000,
-        storage_path: `${user_id}/demo_thermo.png`,
-        tags: ['physics', 'thermodynamics'],
+        name: 'Thermodynamics_Formulas.png',
+        fileType: 'image/png',
+        fileSize: 567000,
+        url: '/uploads/demo_thermo.png',
+        tags: JSON.stringify(['physics', 'thermodynamics']),
+        classId: createdClasses[1]?.id || null,
+        uploadedById: user_id,
       },
       {
-        user_id,
-        class_id: classes?.[2]?.id,
-        file_name: 'Sorting_Algorithms.md',
-        file_type: 'text/markdown',
-        file_size: 34000,
-        storage_path: `${user_id}/demo_sorting.md`,
-        tags: ['cs', 'algorithms'],
+        name: 'Sorting_Algorithms.md',
+        fileType: 'text/markdown',
+        fileSize: 34000,
+        url: '/uploads/demo_sorting.md',
+        tags: JSON.stringify(['cs', 'algorithms']),
+        classId: createdClasses[2]?.id || null,
+        uploadedById: user_id,
       },
-    ]
+    ];
 
-    await supabase.from('library_files').insert(filesData)
+    for (const file of filesData) {
+      await db.libraryFile.create({ data: file });
+    }
 
     // Create 5 demo calendar events
     const eventsData = [
       {
-        user_id,
+        userId: user_id,
         title: 'Calculus II Lecture',
-        event_type: 'class' as const,
-        day_of_week: 1,
-        start_time: '09:00',
-        end_time: '10:30',
+        eventType: 'class',
+        dayOfWeek: 1,
+        startTime: '09:00',
+        endTime: '10:30',
         subject: 'Mathematics',
         color: '#6366f1',
       },
       {
-        user_id,
+        userId: user_id,
         title: 'Physics Lab',
-        event_type: 'class' as const,
-        day_of_week: 2,
-        start_time: '14:00',
-        end_time: '16:00',
+        eventType: 'class',
+        dayOfWeek: 2,
+        startTime: '14:00',
+        endTime: '16:00',
         subject: 'Physics',
         color: '#f59e0b',
       },
       {
-        user_id,
+        userId: user_id,
         title: 'CS Lecture',
-        event_type: 'class' as const,
-        day_of_week: 3,
-        start_time: '11:00',
-        end_time: '12:30',
+        eventType: 'class',
+        dayOfWeek: 3,
+        startTime: '11:00',
+        endTime: '12:30',
         subject: 'Computer Science',
         color: '#10b981',
       },
       {
-        user_id,
+        userId: user_id,
         title: 'Study: Integration Practice',
-        event_type: 'study' as const,
-        day_of_week: 4,
-        start_time: '16:00',
-        end_time: '18:00',
+        eventType: 'study',
+        dayOfWeek: 4,
+        startTime: '16:00',
+        endTime: '18:00',
         subject: 'Mathematics',
         color: '#8b5cf6',
       },
       {
-        user_id,
+        userId: user_id,
         title: 'Algorithm Review',
-        event_type: 'study' as const,
-        day_of_week: 5,
-        start_time: '10:00',
-        end_time: '11:30',
+        eventType: 'study',
+        dayOfWeek: 5,
+        startTime: '10:00',
+        endTime: '11:30',
         subject: 'Computer Science',
         color: '#06b6d4',
       },
-    ]
+    ];
 
-    await supabase.from('calendar_events').insert(eventsData)
+    for (const event of eventsData) {
+      await db.calendarEvent.create({ data: event });
+    }
 
     // Create 1 demo AI chat with 2 messages
-    const { data: chat } = await supabase
-      .from('ai_chats')
-      .insert({
-        user_id,
+    const chat = await db.chatSession.create({
+      data: {
+        userId: user_id,
         title: 'Help with Chain Rule',
-      })
-      .select()
-      .single()
+      },
+    });
 
-    if (chat) {
-      await supabase.from('ai_messages').insert([
+    await db.chatMessage.createMany({
+      data: [
         {
-          chat_id: chat.id,
+          sessionId: chat.id,
           role: 'user',
           content: 'Can you explain the chain rule in calculus?',
         },
         {
-          chat_id: chat.id,
+          sessionId: chat.id,
           role: 'assistant',
           content:
             'The **chain rule** is used to differentiate composite functions. If you have f(g(x)), the derivative is:\n\n**f\'(g(x)) · g\'(x)**\n\nThink of it as the "outer derivative times the inner derivative."\n\n**Example:** Find d/dx [sin(x²)]\n- Outer function: sin(u), derivative: cos(u)\n- Inner function: x², derivative: 2x\n- Result: cos(x²) · 2x = **2x·cos(x²)**',
         },
-      ])
+      ],
+    });
+
+    // Create study stats
+    const existingStats = await db.userStats.findUnique({ where: { userId: user_id } });
+    if (!existingStats) {
+      await db.userStats.create({
+        data: {
+          userId: user_id,
+          studyStreak: 5,
+          cardsReviewed: 42,
+          timeSpent: 720,
+          lastStudyDate: new Date(),
+        },
+      });
     }
 
-    // Create study streak
-    await supabase.from('study_streaks').insert({
-      user_id,
-      current_streak: 5,
-      longest_streak: 12,
-      last_study_date: new Date().toISOString().split('T')[0],
-    })
-
     // Create 2 demo exams
-    const nextWeek = new Date()
-    nextWeek.setDate(nextWeek.getDate() + 7)
-    const nextMonth = new Date()
-    nextMonth.setDate(nextMonth.getDate() + 30)
+    const nextWeek = new Date();
+    nextWeek.setDate(nextWeek.getDate() + 7);
+    const nextMonth = new Date();
+    nextMonth.setDate(nextMonth.getDate() + 30);
 
-    await supabase.from('exams').insert([
-      {
-        user_id,
-        subject: 'Mathematics',
-        exam_date: nextWeek.toISOString().split('T')[0],
-      },
-      {
-        user_id,
-        subject: 'Physics',
-        exam_date: nextMonth.toISOString().split('T')[0],
-      },
-    ])
+    await db.exam.createMany({
+      data: [
+        {
+          title: 'Mathematics',
+          date: nextWeek,
+          userId: user_id,
+        },
+        {
+          title: 'Physics',
+          date: nextMonth,
+          userId: user_id,
+        },
+      ],
+    });
 
     return NextResponse.json({
       message: 'Demo data seeded successfully',
       seeded: true,
-    })
+    });
   } catch (error) {
-    console.error('Seed error:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    console.error('Seed error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

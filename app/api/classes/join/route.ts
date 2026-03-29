@@ -1,59 +1,60 @@
-import { createServiceClient } from '@/lib/supabase/server'
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server';
+import { db } from '@/lib/db';
+import { getSession } from '@/lib/auth';
+import { ensureMockUser } from '@/lib/seed-user';
 
 export async function POST(request: NextRequest) {
   try {
-    const { code, user_id } = await request.json()
+    await ensureMockUser();
+    const session = getSession();
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const userId = session.id;
 
-    if (!code || !user_id) {
-      return NextResponse.json(
-        { error: 'code and user_id are required' },
-        { status: 400 }
-      )
+    const { code } = await request.json();
+
+    if (!code) {
+      return NextResponse.json({ error: 'code is required' }, { status: 400 });
     }
-
-    const supabase = createServiceClient()
 
     // Find class by code
-    const { data: cls, error: classError } = await supabase
-      .from('classes')
-      .select('*')
-      .eq('code', code.toUpperCase())
-      .single()
+    const cls = await db.class.findFirst({
+      where: { code: code.toUpperCase() },
+    });
 
-    if (classError || !cls) {
-      return NextResponse.json({ error: 'Class not found with that code' }, { status: 404 })
+    if (!cls) {
+      return NextResponse.json({ error: 'Class not found with that code' }, { status: 404 });
     }
 
-    // Check if already a member
-    const { data: existing } = await supabase
-      .from('class_members')
-      .select('id')
-      .eq('class_id', cls.id)
-      .eq('user_id', user_id)
-      .single()
+    // Check already a member
+    const existing = await db.classMember.findFirst({
+      where: { classId: cls.id, userId },
+    });
 
     if (existing) {
       return NextResponse.json(
         { error: 'You are already a member of this class' },
         { status: 409 }
-      )
+      );
     }
 
     // Join class
-    const { error: joinError } = await supabase.from('class_members').insert({
-      class_id: cls.id,
-      user_id,
-      role: 'member',
-    })
+    await db.classMember.create({
+      data: { classId: cls.id, userId, role: 'member' },
+    });
 
-    if (joinError) {
-      return NextResponse.json({ error: joinError.message }, { status: 500 })
-    }
-
-    return NextResponse.json({ class: cls })
+    return NextResponse.json({
+      class: {
+        id: cls.id,
+        name: cls.name,
+        subject: cls.subject,
+        code: cls.code,
+        color: cls.color,
+        creator_id: cls.creatorId,
+        created_at: cls.createdAt,
+      },
+    });
   } catch (error) {
-    console.error('Join class error:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    console.error('Join class error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

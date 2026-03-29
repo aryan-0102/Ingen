@@ -1,107 +1,100 @@
-import { createServiceClient } from '@/lib/supabase/server'
-import { NextRequest, NextResponse } from 'next/server'
+export const dynamic = 'force-dynamic';
+
+import { NextRequest, NextResponse } from 'next/server';
+import { db } from '@/lib/db';
+import { getSession } from '@/lib/auth';
+import { ensureMockUser } from '@/lib/seed-user';
 
 export async function GET(
   _request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const supabase = createServiceClient()
+    await ensureMockUser();
+    const { id } = await params;
 
-    const { data: cls, error } = await supabase
-      .from('classes')
-      .select('*')
-      .eq('id', params.id)
-      .single()
+    const cls = await db.class.findUnique({
+      where: { id },
+      include: {
+        creator: { select: { fullName: true, email: true } },
+        _count: { select: { members: true, files: true } },
+      },
+    });
 
-    if (error || !cls) {
-      return NextResponse.json({ error: 'Class not found' }, { status: 404 })
+    if (!cls) {
+      return NextResponse.json({ error: 'Class not found' }, { status: 404 });
     }
-
-    // Get counts and creator info
-    const [{ count: memberCount }, { count: fileCount }, { data: creator }] =
-      await Promise.all([
-        supabase
-          .from('class_members')
-          .select('*', { count: 'exact', head: true })
-          .eq('class_id', cls.id),
-        supabase
-          .from('library_files')
-          .select('*', { count: 'exact', head: true })
-          .eq('class_id', cls.id),
-        supabase
-          .from('profiles')
-          .select('full_name, email')
-          .eq('id', cls.creator_id)
-          .single(),
-      ])
 
     return NextResponse.json({
       class: {
-        ...cls,
-        member_count: memberCount || 0,
-        file_count: fileCount || 0,
-        creator_name: creator?.full_name || 'Unknown',
+        id: cls.id,
+        name: cls.name,
+        subject: cls.subject,
+        description: cls.description,
+        code: cls.code,
+        color: cls.color,
+        meet_link: cls.meetLink,
+        location: cls.location,
+        creator_id: cls.creatorId,
+        creator_name: cls.creator?.fullName || cls.creator?.email || 'Unknown',
+        member_count: cls._count.members,
+        file_count: cls._count.files,
+        created_at: cls.createdAt,
       },
-    })
+    });
   } catch (error) {
-    console.error('Class GET error:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    console.error('Class GET error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const body = await request.json()
-    const supabase = createServiceClient()
+    const session = getSession();
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const { data, error } = await supabase
-      .from('classes')
-      .update({
-        ...body,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', params.id)
-      .select()
-      .single()
+    const { id } = await params;
+    const { name, subject, description, color, meet_link, location } = await request.json();
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
+    const cls = await db.class.update({
+      where: { id },
+      data: {
+        ...(name && { name }),
+        ...(subject && { subject }),
+        ...(description !== undefined && { description }),
+        ...(color && { color }),
+        ...(meet_link !== undefined && { meetLink: meet_link }),
+        ...(location !== undefined && { location }),
+      },
+    });
 
-    return NextResponse.json({ class: data })
+    return NextResponse.json({ class: cls });
   } catch (error) {
-    console.error('Class PUT error:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    console.error('Class PUT error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
 
 export async function DELETE(
   _request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const supabase = createServiceClient()
+    const session = getSession();
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    // Delete members first
-    await supabase.from('class_members').delete().eq('class_id', params.id)
+    const { id } = await params;
 
-    // Delete associated files metadata
-    await supabase.from('library_files').delete().eq('class_id', params.id)
+    await db.classMember.deleteMany({ where: { classId: id } });
+    await db.libraryFile.deleteMany({ where: { classId: id } });
+    await db.class.delete({ where: { id } });
 
-    // Delete class
-    const { error } = await supabase.from('classes').delete().eq('id', params.id)
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
-
-    return NextResponse.json({ message: 'Class deleted' })
+    return NextResponse.json({ message: 'Class deleted' });
   } catch (error) {
-    console.error('Class DELETE error:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    console.error('Class DELETE error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

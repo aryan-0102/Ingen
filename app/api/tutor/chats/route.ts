@@ -1,68 +1,66 @@
-export const dynamic = "force-dynamic"
-
-import { createServiceClient } from '@/lib/supabase/server'
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server';
+import { db } from '@/lib/db';
+import { getSession } from '@/lib/auth';
+import { ensureMockUser } from '@/lib/seed-user';
 
 export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url)
-    const userId = searchParams.get('user_id')
+    await ensureMockUser();
 
-    if (!userId) {
-      return NextResponse.json(
-        { error: 'user_id is required' },
-        { status: 400 }
-      )
+    const session = getSession();
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+    const userId = session.id;
 
-    const supabase = createServiceClient()
+    const chats = await db.chatSession.findMany({
+      where: { userId },
+      orderBy: { updatedAt: 'desc' }
+    });
 
-    const { data, error } = await supabase
-      .from('ai_chats')
-      .select('*')
-      .eq('user_id', userId)
-      .order('updated_at', { ascending: false })
+    const formattedChats = chats.map(c => ({
+      id: c.id,
+      user_id: c.userId,
+      title: c.title,
+      created_at: c.createdAt,
+      updated_at: c.updatedAt
+    }));
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
-
-    return NextResponse.json(data)
+    return NextResponse.json(formattedChats);
   } catch (error) {
-    console.error('List chats error:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    console.error('List chats error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const { user_id, title } = await request.json()
+    await ensureMockUser();
 
-    if (!user_id) {
-      return NextResponse.json(
-        { error: 'user_id is required' },
-        { status: 400 }
-      )
+    const session = getSession();
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+    const userId = session.id;
 
-    const supabase = createServiceClient()
+    const { title } = await request.json();
 
-    const { data, error } = await supabase
-      .from('ai_chats')
-      .insert({
-        user_id,
-        title: title || 'New Chat',
-      })
-      .select()
-      .single()
+    const newChat = await db.chatSession.create({
+      data: {
+        userId,
+        title: title || 'New Chat'
+      }
+    });
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
-
-    return NextResponse.json(data)
+    return NextResponse.json({
+      id: newChat.id,
+      user_id: newChat.userId,
+      title: newChat.title,
+      created_at: newChat.createdAt,
+      updated_at: newChat.updatedAt
+    });
   } catch (error) {
-    console.error('Create chat error:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    console.error('Create chat error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

@@ -1,83 +1,97 @@
-export const dynamic = "force-dynamic"
+export const dynamic = 'force-dynamic';
 
-import { createServiceClient } from '@/lib/supabase/server'
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server';
+import { db } from '@/lib/db';
+import { getSession } from '@/lib/auth';
+import { ensureMockUser } from '@/lib/seed-user';
 
 export async function GET(request: NextRequest) {
   try {
-    const userId = request.nextUrl.searchParams.get('user_id')
-    const search = request.nextUrl.searchParams.get('search')
-    const tag = request.nextUrl.searchParams.get('tag')
+    await ensureMockUser();
 
-    if (!userId) {
-      return NextResponse.json({ error: 'user_id is required' }, { status: 400 })
+    const session = getSession();
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+    const userId = session.id;
 
-    const supabase = createServiceClient()
+    const search = request.nextUrl.searchParams.get('search');
+    
+    const files = await db.libraryFile.findMany({
+      where: {
+        uploadedById: userId,
+        ...(search ? { name: { contains: search } } : {})
+      },
+      orderBy: { uploadedAt: 'desc' }
+    });
 
-    let query = supabase
-      .from('library_files')
-      .select('*')
-      .eq('user_id', userId)
-      .order('uploaded_at', { ascending: false })
+    const formattedFiles = files.map((f: any) => ({
+      id: f.id,
+      user_id: f.uploadedById,
+      class_id: f.classId,
+      file_name: f.name,
+      file_type: f.fileType,
+      file_size: f.fileSize,
+      storage_path: f.url,
+      tags: JSON.parse(f.tags || '[]'),
+      ai_summary: f.aiSummary,
+      uploaded_at: f.uploadedAt,
+    }));
 
-    if (search) {
-      query = query.ilike('file_name', `%${search}%`)
-    }
-
-    if (tag) {
-      query = query.contains('tags', [tag])
-    }
-
-    const { data: files, error } = await query
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
-
-    return NextResponse.json({ files: files || [] })
+    return NextResponse.json(formattedFiles);
   } catch (error) {
-    console.error('Library GET error:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    console.error('Library GET error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const { user_id, class_id, file_name, file_type, file_size, storage_path, tags } =
-      await request.json()
+    await ensureMockUser();
 
-    if (!user_id || !file_name || !file_type || !storage_path) {
+    const session = getSession();
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    const userId = session.id;
+
+    const { class_id, file_name, file_type, file_size, storage_path, tags } = await request.json();
+
+    if (!file_name || !storage_path) {
       return NextResponse.json(
-        { error: 'user_id, file_name, file_type, and storage_path are required' },
+        { error: 'file_name and storage_path are required' },
         { status: 400 }
-      )
+      );
     }
 
-    const supabase = createServiceClient()
+    const file = await db.libraryFile.create({
+      data: {
+        name: file_name,
+        fileSize: file_size || 0,
+        fileType: file_type || 'unknown',
+        url: storage_path,
+        classId: class_id || null,
+        uploadedById: userId,
+        tags: JSON.stringify(tags || [])
+      }
+    });
 
-    const { data, error } = await supabase
-      .from('library_files')
-      .insert({
-        user_id,
-        class_id: class_id || null,
-        file_name,
-        file_type,
-        file_size: file_size || 0,
-        storage_path,
-        tags: tags || [],
-        ai_summary: null,
-      })
-      .select()
-      .single()
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
-
-    return NextResponse.json({ file: data })
+    return NextResponse.json({
+      file: {
+        id: file.id,
+        user_id: file.uploadedById,
+        class_id: file.classId,
+        file_name: file.name,
+        file_type: file.fileType,
+        file_size: file.fileSize,
+        storage_path: file.url,
+        tags: JSON.parse(file.tags || '[]'),
+        ai_summary: file.aiSummary,
+        uploaded_at: file.uploadedAt,
+      }
+    });
   } catch (error) {
-    console.error('Library POST error:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    console.error('Library POST error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

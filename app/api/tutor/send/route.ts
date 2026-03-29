@@ -1,6 +1,8 @@
-import { createServiceClient } from '@/lib/supabase/server'
-import { generateAIResponse } from '@/lib/gemini'
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server';
+import { db } from '@/lib/db';
+import { getSession } from '@/lib/auth';
+import { generateAIResponse } from '@/lib/gemini';
+import { ensureMockUser } from '@/lib/seed-user';
 
 const SYSTEM_PROMPT = `You are InGen AI Tutor, a friendly and knowledgeable academic assistant. You help students understand concepts, solve problems, and prepare for exams. Your responses should be:
 - Clear and concise
@@ -8,95 +10,104 @@ const SYSTEM_PROMPT = `You are InGen AI Tutor, a friendly and knowledgeable acad
 - Encourage critical thinking
 - Break down complex topics into digestible parts
 - Use markdown formatting for better readability
-If asked to generate a quiz, create 5 multiple-choice questions with answers.`
+If asked to generate a quiz, create 5 multiple-choice questions with answers.`;
 
 export async function POST(request: NextRequest) {
   try {
-    const { chat_id, user_id, content, quick_action } = await request.json()
+    await ensureMockUser();
 
-    if (!chat_id || !user_id || !content) {
+    const session = getSession();
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    const userId = session.id;
+
+    const { chat_id, content, quick_action } = await request.json();
+
+    if (!chat_id || !content) {
       return NextResponse.json(
-        { error: 'chat_id, user_id, and content are required' },
+        { error: 'chat_id and content are required' },
         { status: 400 }
-      )
+      );
     }
 
-    const supabase = createServiceClient()
+    // Verify chat belongs to user
+    const chat = await db.chatSession.findUnique({ where: { id: chat_id } });
+    if (!chat || chat.userId !== userId) {
+      return NextResponse.json({ error: 'Chat not found' }, { status: 404 });
+    }
 
     // Save user message
-    const { error: userMsgError } = await supabase
-      .from('ai_messages')
-      .insert({
-        chat_id,
+    const userMsg = await db.chatMessage.create({
+      data: {
+        sessionId: chat_id,
         role: 'user',
         content,
-      })
-
-    if (userMsgError) {
-      return NextResponse.json({ error: userMsgError.message }, { status: 500 })
-    }
+      }
+    });
 
     // Get conversation history (last 10 messages)
-    const { data: history } = await supabase
-      .from('ai_messages')
-      .select('role, content')
-      .eq('chat_id', chat_id)
-      .order('created_at', { ascending: false })
-      .limit(10)
+    const history = await db.chatMessage.findMany({
+      where: { sessionId: chat_id },
+      orderBy: { createdAt: 'desc' },
+      take: 10
+    });
 
-    const conversationContext = (history || [])
+    const conversationContext = history
       .reverse()
-      .map((msg) => `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}`)
-      .join('\n\n')
+      .map((msg: { role: string; content: string }) => `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}`)
+      .join('\n\n');
 
     // Build prompt
-    let prompt = conversationContext
+    let prompt = conversationContext;
     if (quick_action === 'quiz') {
-      prompt += '\n\nGenerate a 5-question multiple choice quiz on the topic we have been discussing. Include answers at the end.'
+      prompt += '\n\nGenerate a 5-question multiple choice quiz on the topic we have been discussing. Include answers at the end.';
     }
 
     // Generate AI response
-    const aiResponse = await generateAIResponse(prompt, SYSTEM_PROMPT)
+    const aiResponse = await generateAIResponse(prompt, SYSTEM_PROMPT);
 
     // Save AI message
-    const { data: aiMsg, error: aiMsgError } = await supabase
-      .from('ai_messages')
-      .insert({
-        chat_id,
+    const aiMsg = await db.chatMessage.create({
+      data: {
+        sessionId: chat_id,
         role: 'assistant',
         content: aiResponse,
-      })
-      .select()
-      .single()
+      }
+    });
 
-    if (aiMsgError) {
-      return NextResponse.json({ error: aiMsgError.message }, { status: 500 })
+    // Update chat title if it's the first message
+    if (chat.title === 'New Chat') {
+      const title = content.length > 40 ? content.substring(0, 40) + '...' : content;
+      await db.chatSession.update({
+        where: { id: chat_id },
+        data: { title }
+      });
     }
 
-    // Update chat title if it's the first message (title is still "New Chat")
-    const { data: chat } = await supabase
-      .from('ai_chats')
-      .select('title')
-      .eq('id', chat_id)
-      .single()
+    await db.chatSession.update({
+      where: { id: chat_id },
+      data: { updatedAt: new Date() }
+    });
 
-    if (chat?.title === 'New Chat') {
-      const title = content.length > 40 ? content.substring(0, 40) + '...' : content
-      await supabase
-        .from('ai_chats')
-        .update({ title })
-        .eq('id', chat_id)
-    }
-
-    // Update chat's updated_at
-    await supabase
-      .from('ai_chats')
-      .update({ updated_at: new Date().toISOString() })
-      .eq('id', chat_id)
-
-    return NextResponse.json(aiMsg)
+    return NextResponse.json({
+      userMessage: {
+        id: userMsg.id,
+        chat_id: userMsg.sessionId,
+        role: userMsg.role,
+        content: userMsg.content,
+        created_at: userMsg.createdAt,
+      },
+      aiMessage: {
+        id: aiMsg.id,
+        chat_id: aiMsg.sessionId,
+        role: aiMsg.role,
+        content: aiMsg.content,
+        created_at: aiMsg.createdAt,
+      }
+    });
   } catch (error) {
-    console.error('Tutor send error:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    console.error('Tutor send error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

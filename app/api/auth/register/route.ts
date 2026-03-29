@@ -6,21 +6,27 @@ import { cookies } from 'next/headers';
 
 export async function POST(req: Request) {
   try {
-    const { email, password } = await req.json();
+    const { email, password, fullName } = await req.json();
 
-    if (!email || !password) {
-      return NextResponse.json({ error: 'Missing credentials' }, { status: 400 });
+    if (!email || !password || !fullName) {
+      return NextResponse.json({ error: 'Missing fields' }, { status: 400 });
     }
 
-    const user = await db.user.findUnique({ where: { email } });
-    if (!user) {
-      return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
+    const existingUser = await db.user.findUnique({ where: { email } });
+    if (existingUser) {
+      return NextResponse.json({ error: 'User already exists' }, { status: 400 });
     }
 
-    const isMatch = await bcrypt.compare(password, user.passwordHash);
-    if (!isMatch) {
-      return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
-    }
+    const salt = await bcrypt.genSalt(10);
+    const passwordHash = await bcrypt.hash(password, salt);
+
+    const user = await db.user.create({
+      data: {
+        email,
+        passwordHash,
+        fullName,
+      },
+    });
 
     const token = signToken({ id: user.id, email: user.email, fullName: user.fullName });
     
@@ -34,7 +40,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ user: { id: user.id, email: user.email, fullName: user.fullName } });
   } catch (error) {
-    console.error('Login error:', error);
+    console.error('Registration error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

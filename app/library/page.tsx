@@ -18,7 +18,6 @@ import {
 } from 'lucide-react'
 import AppShell from '@/components/layout/AppShell'
 import LoadingSkeleton from '@/components/common/LoadingSkeleton'
-import { getSupabase } from '@/lib/supabase/client'
 import { LibraryFile } from '@/lib/types'
 import { formatDate, formatFileSize, getFileIcon } from '@/lib/utils'
 
@@ -48,13 +47,12 @@ export default function LibraryPage() {
 
   useEffect(() => {
     const init = async () => {
-      const { data: { session } } = await getSupabase().auth.getSession()
-      if (!session?.user) { router.push('/login'); return }
-      setUserId(session.user.id)
-      await fetchFiles(session.user.id)
+      const uid = 'test-user-id'
+      setUserId(uid)
+      await fetchFiles(uid)
     }
     init()
-  }, [router])
+  }, [])
 
   const fetchFiles = async (uid: string) => {
     setLoading(true)
@@ -300,7 +298,8 @@ export default function LibraryPage() {
                   </div>
                   <div className="flex items-center gap-2 mt-3 flex-wrap">
                     <a
-                      href={`${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/library-files/${file.storage_path}`}
+                      href={file.storage_path}
+                      download={file.file_name}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="btn-outline text-xs px-2.5 py-1 flex items-center gap-1"

@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { getSupabase } from '@/lib/supabase/client';
 import { Profile } from '@/lib/types';
 import Sidebar from './Sidebar';
 import MobileHeader from './MobileHeader';
@@ -17,25 +16,18 @@ export default function AppShell({ children }: AppShellProps) {
   const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
-    const fetchProfile = async () => {
-      const {
-        data: { session },
-      } = await getSupabase().auth.getSession();
-
-      if (session?.user) {
-        const { data } = await getSupabase()
-          .from('profiles')
-          .select('*')
-          .eq('id', session.user.id)
-          .single();
-
-        if (data) {
-          setUser(data as Profile);
+    const fetchUser = async () => {
+      try {
+        const res = await fetch('/api/auth/me');
+        if (res.ok) {
+          const data = await res.json();
+          setUser(data.user);
         }
+      } catch (err) {
+        console.error('Failed to fetch user', err);
       }
     };
-
-    fetchProfile();
+    fetchUser();
   }, []);
 
   return (

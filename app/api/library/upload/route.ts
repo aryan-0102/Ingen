@@ -1,48 +1,48 @@
-import { createServiceClient } from '@/lib/supabase/server'
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server';
+import { writeFile, mkdir } from 'fs/promises';
+import { join } from 'path';
+import { ensureMockUser } from '@/lib/seed-user';
+import { getSession } from '@/lib/auth';
 
 export async function POST(request: NextRequest) {
   try {
-    const formData = await request.formData()
-    const file = formData.get('file') as File | null
-    const userId = formData.get('user_id') as string | null
+    await ensureMockUser();
+    const session = getSession();
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    if (!file || !userId) {
-      return NextResponse.json(
-        { error: 'file and user_id are required' },
-        { status: 400 }
-      )
+    const formData = await request.formData();
+    const file = formData.get('file') as File | null;
+
+    if (!file) {
+      return NextResponse.json({ error: 'No file provided' }, { status: 400 });
     }
 
-    const supabase = createServiceClient()
+    const bytes = await file.arrayBuffer();
+    const buffer = Buffer.from(bytes);
 
-    const timestamp = Date.now()
-    const sanitizedName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
-    const storagePath = `${userId}/${timestamp}_${sanitizedName}`
+    // Use /tmp on Vercel (read-only fs), public/uploads locally
+    const isVercel = process.env.VERCEL === '1';
+    const uploadDir = isVercel
+      ? join('/tmp', 'uploads')
+      : join(process.cwd(), 'public', 'uploads');
+    await mkdir(uploadDir, { recursive: true });
 
-    // Upload to Supabase Storage
-    const { error: uploadError } = await supabase.storage
-      .from('library-files')
-      .upload(storagePath, file, {
-        contentType: file.type,
-        upsert: false,
-      })
+    // Unique filename to avoid collisions
+    const timestamp = Date.now();
+    const sanitized = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const filename = `${timestamp}_${sanitized}`;
+    const filePath = join(uploadDir, filename);
 
-    if (uploadError) {
-      return NextResponse.json({ error: uploadError.message }, { status: 500 })
-    }
-
-    // Get public URL
-    const { data: urlData } = supabase.storage
-      .from('library-files')
-      .getPublicUrl(storagePath)
+    await writeFile(filePath, buffer);
 
     return NextResponse.json({
-      storage_path: storagePath,
-      publicUrl: urlData.publicUrl,
-    })
+      storage_path: isVercel ? `/tmp/uploads/${filename}` : `/uploads/${filename}`,
+      file_name: file.name,
+      file_type: file.type,
+      file_size: file.size,
+    });
   } catch (error) {
-    console.error('Upload error:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    console.error('File upload error:', error);
+    return NextResponse.json({ error: 'Upload failed' }, { status: 500 });
   }
 }

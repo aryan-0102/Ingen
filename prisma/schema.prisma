@@ -1,0 +1,172 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                String          @id @default(uuid())
+  email             String          @unique
+  passwordHash      String
+  fullName          String
+  role              String          @default("student")
+  avatarUrl         String?
+  googleCalendarUrl String?
+  defaultMeetLink   String?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  classesCreated    Class[]         @relation("ClassCreator")
+  classMembers      ClassMember[]
+  flashcardDecks    FlashcardDeck[]
+  chatSessions      ChatSession[]
+  userStats         UserStats?
+  exams             Exam[]
+  libraryFiles      LibraryFile[]
+}
+
+model Class {
+  id          String          @id @default(uuid())
+  name        String
+  subject     String          @default("General")
+  description String?
+  code        String          @unique @default("")
+  color       String?
+  meetLink    String?
+  location    String?
+  visibility  String          @default("public")
+  creatorId   String
+  creator     User            @relation("ClassCreator", fields: [creatorId], references: [id])
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  members     ClassMember[]
+  files       LibraryFile[]
+  flashcards  FlashcardDeck[]
+}
+
+model ClassMember {
+  id       String   @id @default(uuid())
+  classId  String
+  userId   String
+  role     String   @default("student")
+  joinedAt DateTime @default(now())
+
+  class    Class    @relation(fields: [classId], references: [id])
+  user     User     @relation(fields: [userId], references: [id])
+
+  @@unique([classId, userId])
+}
+
+model LibraryFile {
+  id           String   @id @default(uuid())
+  name         String
+  fileType     String   @default("unknown")
+  fileSize     Int      @default(0)
+  url          String
+  tags         String   @default("[]")
+  aiSummary    String?
+  classId      String?
+  uploadedById String
+  uploadedAt   DateTime @default(now())
+
+  uploadedBy   User?    @relation(fields: [uploadedById], references: [id])
+  class        Class?   @relation(fields: [classId], references: [id])
+}
+
+model FlashcardDeck {
+  id          String      @id @default(uuid())
+  title       String
+  description String?
+  creatorId   String
+  classId     String?
+  createdAt   DateTime    @default(now())
+
+  creator     User        @relation(fields: [creatorId], references: [id])
+  class       Class?      @relation(fields: [classId], references: [id])
+  cards       Flashcard[]
+}
+
+model Flashcard {
+  id           String        @id @default(uuid())
+  deckId       String
+  front        String
+  back         String
+  lastReviewed DateTime?
+  nextReview   DateTime?
+  confidence   Int           @default(0)
+  createdAt    DateTime      @default(now())
+
+  deck         FlashcardDeck @relation(fields: [deckId], references: [id], onDelete: Cascade)
+}
+
+model ChatSession {
+  id        String        @id @default(uuid())
+  userId    String
+  title     String
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  user      User          @relation(fields: [userId], references: [id])
+  messages  ChatMessage[]
+}
+
+model ChatMessage {
+  id        String      @id @default(uuid())
+  sessionId String
+  role      String
+  content   String
+  createdAt DateTime    @default(now())
+
+  session   ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+}
+
+model UserStats {
+  id            String    @id @default(uuid())
+  userId        String    @unique
+  studyStreak   Int       @default(0)
+  cardsReviewed Int       @default(0)
+  timeSpent     Int       @default(0)
+  lastStudyDate DateTime?
+
+  user          User      @relation(fields: [userId], references: [id])
+}
+
+model Exam {
+  id        String         @id @default(uuid())
+  title     String
+  date      DateTime
+  userId    String
+  createdAt DateTime       @default(now())
+
+  user      User           @relation(fields: [userId], references: [id])
+  questions ExamQuestion[]
+}
+
+model ExamQuestion {
+  id            String   @id @default(uuid())
+  examId        String
+  question      String
+  type          String
+  options       String?
+  correctAnswer String
+  createdAt     DateTime @default(now())
+
+  exam          Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
+}
+
+model CalendarEvent {
+  id        String   @id @default(uuid())
+  userId    String
+  title     String
+  eventType String
+  dayOfWeek Int
+  startTime String
+  endTime   String
+  subject   String?
+  color     String?
+  createdAt DateTime @default(now())
+}

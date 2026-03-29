@@ -18,7 +18,6 @@ import {
 } from 'lucide-react'
 import AppShell from '@/components/layout/AppShell'
 import LoadingSkeleton from '@/components/common/LoadingSkeleton'
-import { getSupabase } from '@/lib/supabase/client'
 import { Profile } from '@/lib/types'
 
 const fadeUp = {
@@ -56,11 +55,9 @@ export default function SettingsPage() {
 
   useEffect(() => {
     const init = async () => {
-      const { data: { session } } = await getSupabase().auth.getSession()
-      if (!session?.user) { router.push('/login'); return }
-      const uid = session.user.id
+      const uid = 'test-user-id'
       setUserId(uid)
-      setEmail(session.user.email || '')
+      setEmail('admin@g')
 
       const res = await fetch(`/api/profile?user_id=${uid}`)
       const data = await res.json()
@@ -80,7 +77,7 @@ export default function SettingsPage() {
       setLoading(false)
     }
     init()
-  }, [router])
+  }, [])
 
   const showToast = (msg: string) => {
     setToastMsg(msg)

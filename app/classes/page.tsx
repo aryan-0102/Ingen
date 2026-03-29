@@ -17,7 +17,6 @@ import {
 } from 'lucide-react'
 import AppShell from '@/components/layout/AppShell'
 import LoadingSkeleton from '@/components/common/LoadingSkeleton'
-import { getSupabase } from '@/lib/supabase/client'
 import { Class } from '@/lib/types'
 import { formatDate } from '@/lib/utils'
 
@@ -40,22 +39,10 @@ export default function ClassesPage() {
   const [joinError, setJoinError] = useState('')
 
   useEffect(() => {
-    const init = async () => {
-      const {
-        data: { session },
-      } = await getSupabase().auth.getSession()
-
-      if (!session?.user) {
-        router.push('/login')
-        return
-      }
-
-      setUserId(session.user.id)
-      await fetchClasses(session.user.id)
-    }
-
-    init()
-  }, [router])
+    const uid = 'test-user-id'
+    setUserId(uid)
+    fetchClasses(uid)
+  }, [])
 
   const fetchClasses = async (uid: string) => {
     setLoading(true)

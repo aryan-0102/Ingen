@@ -1,48 +1,40 @@
-import { createServiceClient } from '@/lib/supabase/server'
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server';
+import { db } from '@/lib/db';
+import { getSession } from '@/lib/auth';
+import { unlink } from 'fs/promises';
+import { join } from 'path';
 
 export async function DELETE(
   _request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const supabase = createServiceClient()
+    const session = getSession();
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const userId = session.id;
 
-    // Get file record to find storage path
-    const { data: file, error: fetchError } = await supabase
-      .from('library_files')
-      .select('storage_path')
-      .eq('id', params.id)
-      .single()
+    const { id } = await params;
 
-    if (fetchError || !file) {
-      return NextResponse.json({ error: 'File not found' }, { status: 404 })
+    const file = await db.libraryFile.findUnique({ where: { id } });
+    if (!file || file.uploadedById !== userId) {
+      return NextResponse.json({ error: 'File not found' }, { status: 404 });
     }
 
-    // Delete from storage
-    if (file.storage_path) {
-      const { error: storageError } = await supabase.storage
-        .from('library-files')
-        .remove([file.storage_path])
-
-      if (storageError) {
-        console.error('Storage delete error:', storageError)
+    // Delete from local storage if it's a local path
+    if (file.url && file.url.startsWith('/uploads/')) {
+      try {
+        const localPath = join(process.cwd(), 'public', file.url);
+        await unlink(localPath);
+      } catch {
+        // File may already be gone, continue
       }
     }
 
-    // Delete metadata record
-    const { error: deleteError } = await supabase
-      .from('library_files')
-      .delete()
-      .eq('id', params.id)
+    await db.libraryFile.delete({ where: { id } });
 
-    if (deleteError) {
-      return NextResponse.json({ error: deleteError.message }, { status: 500 })
-    }
-
-    return NextResponse.json({ message: 'File deleted' })
+    return NextResponse.json({ message: 'File deleted' });
   } catch (error) {
-    console.error('Library DELETE error:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    console.error('Delete library file error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

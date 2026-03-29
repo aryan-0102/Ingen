@@ -17,10 +17,39 @@ export function getSupabase(): SupabaseClient {
     const mockUrl = 'https://mock.supabase.co'
     const mockKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1vY2siLCJyb2xlIjoiYW5vbiIsImlhdCI6MTY0NjY0MDAwMCwiZXhwIjoxOTYyMjE2MDAwfQ.mock'
     _supabase = createClient(mockUrl, mockKey)
-    return _supabase
+  } else {
+    _supabase = createClient(url, key)
   }
-  
-  _supabase = createClient(url, key)
+
+  // Monkey-patch getSession to always return a mock authenticated user
+  const mockSession = {
+    access_token: 'mock-token',
+    refresh_token: 'mock-refresh',
+    expires_in: 3600,
+    expires_at: Math.floor(Date.now() / 1000) + 3600,
+    token_type: 'bearer',
+    user: {
+      id: 'test-user-id',
+      email: 'admin@g',
+      app_metadata: {},
+      user_metadata: { full_name: 'Test Setup User' },
+      aud: 'authenticated',
+      created_at: new Date().toISOString(),
+    }
+  } as any;
+
+  _supabase.auth.getSession = async () => ({
+    data: { session: mockSession },
+    error: null
+  } as any)
+
+  _supabase.auth.onAuthStateChange = (callback) => {
+    setTimeout(() => {
+      callback('SIGNED_IN', mockSession);
+    }, 0);
+    return { data: { subscription: { unsubscribe: () => {} } } } as any;
+  };
+
   return _supabase
 }
 

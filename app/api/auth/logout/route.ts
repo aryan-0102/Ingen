@@ -1,21 +1,11 @@
-import { createServerClient } from '@/lib/supabase/server'
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
 
-export async function POST(_request: NextRequest) {
+export async function POST() {
   try {
-    const supabase = createServerClient()
-    const { error } = await supabase.auth.signOut()
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 400 })
-    }
-
-    return NextResponse.json({ message: 'Signed out successfully' })
+    cookies().delete('session_token');
+    return NextResponse.json({ success: true });
   } catch (error) {
-    console.error('Logout error:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

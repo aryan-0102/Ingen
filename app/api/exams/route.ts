@@ -1,95 +1,81 @@
-export const dynamic = "force-dynamic"
+export const dynamic = 'force-dynamic';
 
-import { createServiceClient } from '@/lib/supabase/server'
-import { NextRequest, NextResponse } from 'next/server'
+import { db } from '@/lib/db';
+import { getSession } from '@/lib/auth';
+import { NextRequest, NextResponse } from 'next/server';
+import { ensureMockUser } from '@/lib/seed-user';
 
 export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url)
-    const userId = searchParams.get('user_id')
+    await ensureMockUser();
+    const session = getSession();
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const userId = session.id;
 
-    if (!userId) {
-      return NextResponse.json(
-        { error: 'user_id is required' },
-        { status: 400 }
-      )
-    }
+    const exams = await db.exam.findMany({
+      where: { userId },
+      orderBy: { date: 'asc' },
+    });
 
-    const supabase = createServiceClient()
-
-    const { data, error } = await supabase
-      .from('exams')
-      .select('*')
-      .eq('user_id', userId)
-      .order('exam_date', { ascending: true })
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
-
-    return NextResponse.json(data)
+    return NextResponse.json(
+      exams.map((e) => ({
+        id: e.id,
+        user_id: e.userId,
+        subject: e.title,
+        exam_date: e.date.toISOString().split('T')[0],
+        created_at: e.createdAt,
+      }))
+    );
   } catch (error) {
-    console.error('List exams error:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    console.error('List exams error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const { user_id, subject, exam_date } = await request.json()
+    await ensureMockUser();
+    const session = getSession();
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const userId = session.id;
 
-    if (!user_id || !subject || !exam_date) {
-      return NextResponse.json(
-        { error: 'user_id, subject, and exam_date are required' },
-        { status: 400 }
-      )
+    const { subject, exam_date } = await request.json();
+
+    if (!subject || !exam_date) {
+      return NextResponse.json({ error: 'subject and exam_date are required' }, { status: 400 });
     }
 
-    const supabase = createServiceClient()
+    const exam = await db.exam.create({
+      data: {
+        title: subject,
+        date: new Date(exam_date),
+        userId,
+      },
+    });
 
-    const { data, error } = await supabase
-      .from('exams')
-      .insert({ user_id, subject, exam_date })
-      .select()
-      .single()
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
-
-    return NextResponse.json(data)
+    return NextResponse.json({
+      id: exam.id,
+      user_id: exam.userId,
+      subject: exam.title,
+      exam_date: exam.date.toISOString().split('T')[0],
+      created_at: exam.createdAt,
+    });
   } catch (error) {
-    console.error('Create exam error:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    console.error('Create exam error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
 
 export async function DELETE(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url)
-    const id = searchParams.get('id')
+    const id = request.nextUrl.searchParams.get('id');
+    if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 });
 
-    if (!id) {
-      return NextResponse.json(
-        { error: 'id is required' },
-        { status: 400 }
-      )
-    }
+    await db.exam.delete({ where: { id } });
 
-    const supabase = createServiceClient()
-
-    const { error } = await supabase
-      .from('exams')
-      .delete()
-      .eq('id', id)
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
-
-    return NextResponse.json({ message: 'Exam deleted successfully' })
+    return NextResponse.json({ message: 'Exam deleted successfully' });
   } catch (error) {
-    console.error('Delete exam error:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    console.error('Delete exam error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

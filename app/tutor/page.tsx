@@ -20,7 +20,6 @@ import {
 } from 'lucide-react'
 import AppShell from '@/components/layout/AppShell'
 import LoadingSkeleton from '@/components/common/LoadingSkeleton'
-import { getSupabase } from '@/lib/supabase/client'
 import { AIChat, AIMessage } from '@/lib/types'
 
 const fadeUp = {
@@ -57,15 +56,13 @@ export default function TutorPage() {
 
   useEffect(() => {
     const init = async () => {
-      const { data: { session } } = await getSupabase().auth.getSession()
-      if (!session?.user) { router.push('/login'); return }
-      const uid = session.user.id
+      const uid = 'test-user-id'
       setUserId(uid)
       await fetchChats(uid)
       setLoading(false)
     }
     init()
-  }, [router])
+  }, [])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })

@@ -1,77 +1,59 @@
-import { createServiceClient } from '@/lib/supabase/server'
-import { NextRequest, NextResponse } from 'next/server'
+export const dynamic = 'force-dynamic';
+
+import { NextRequest, NextResponse } from 'next/server';
+import { db } from '@/lib/db';
 
 export async function GET(
   _request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const supabase = createServiceClient()
+    const { id } = await params;
 
-    const { data: members, error } = await supabase
-      .from('class_members')
-      .select('*')
-      .eq('class_id', params.id)
-      .order('joined_at', { ascending: true })
+    const members = await db.classMember.findMany({
+      where: { classId: id },
+      include: {
+        user: { select: { id: true, fullName: true, email: true } },
+      },
+      orderBy: { joinedAt: 'asc' },
+    });
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
-
-    // Enrich with profile info
-    const userIds = (members || []).map((m) => m.user_id)
-
-    const { data: profiles } = await supabase
-      .from('profiles')
-      .select('id, full_name, email')
-      .in('id', userIds)
-
-    const profileMap = new Map(
-      (profiles || []).map((p) => [p.id, p])
-    )
-
-    const enriched = (members || []).map((m) => ({
-      ...m,
-      full_name: profileMap.get(m.user_id)?.full_name || 'Unknown',
-      email: profileMap.get(m.user_id)?.email || '',
-    }))
-
-    return NextResponse.json({ members: enriched })
+    return NextResponse.json({
+      members: members.map((m) => ({
+        id: m.id,
+        class_id: m.classId,
+        user_id: m.userId,
+        role: m.role,
+        joined_at: m.joinedAt,
+        full_name: m.user?.fullName || 'Unknown',
+        email: m.user?.email || '',
+      })),
+    });
   } catch (error) {
-    console.error('Members GET error:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    console.error('Members GET error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { user_id_to_remove } = await request.json()
+    const { id } = await params;
+    const { user_id_to_remove } = await request.json();
 
     if (!user_id_to_remove) {
-      return NextResponse.json(
-        { error: 'user_id_to_remove is required' },
-        { status: 400 }
-      )
+      return NextResponse.json({ error: 'user_id_to_remove is required' }, { status: 400 });
     }
 
-    const supabase = createServiceClient()
+    await db.classMember.deleteMany({
+      where: { classId: id, userId: user_id_to_remove },
+    });
 
-    const { error } = await supabase
-      .from('class_members')
-      .delete()
-      .eq('class_id', params.id)
-      .eq('user_id', user_id_to_remove)
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
-
-    return NextResponse.json({ message: 'Member removed' })
+    return NextResponse.json({ message: 'Member removed' });
   } catch (error) {
-    console.error('Members DELETE error:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    console.error('Members DELETE error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

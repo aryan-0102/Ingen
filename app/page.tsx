@@ -1,6 +1,5 @@
 'use client';
 
-import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
@@ -14,7 +13,6 @@ import {
   ArrowRight,
   Play,
 } from 'lucide-react';
-import { getSupabase } from '@/lib/supabase/client';
 
 const features = [
   {
@@ -97,18 +95,6 @@ const stagger = {
 
 export default function LandingPage() {
   const router = useRouter();
-
-  useEffect(() => {
-    const checkUser = async () => {
-      const {
-        data: { session },
-      } = await getSupabase().auth.getSession();
-      if (session?.user) {
-        router.push('/dashboard');
-      }
-    };
-    checkUser();
-  }, [router]);
 
   return (
     <div className="min-h-screen">
@@ -203,7 +189,7 @@ export default function LandingPage() {
               className="flex flex-col sm:flex-row items-center justify-center gap-4"
             >
               <Link
-                href="/signup"
+                href="/dashboard"
                 className="btn-primary text-base px-8 py-3 flex items-center gap-2"
               >
                 Get Started Free
