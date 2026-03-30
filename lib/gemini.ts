@@ -1,29 +1,40 @@
-import { GoogleGenerativeAI } from '@google/generative-ai'
+import Groq from 'groq-sdk'
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '')
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY || '' })
 
 export async function generateAIResponse(prompt: string, systemPrompt?: string): Promise<string> {
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
-    const fullPrompt = systemPrompt ? `${systemPrompt}\n\nUser: ${prompt}` : prompt
-    const result = await model.generateContent(fullPrompt)
-    const response = await result.response
-    return response.text()
+    const messages: any[] = []
+    if (systemPrompt) {
+      messages.push({ role: 'system', content: systemPrompt })
+    }
+    messages.push({ role: 'user', content: prompt })
+
+    const chatCompletion = await groq.chat.completions.create({
+      messages,
+      model: 'llama-3.1-8b-instant',
+    })
+
+    return chatCompletion.choices[0]?.message?.content || ''
   } catch (error: any) {
-    console.error('Gemini API error:', error)
-    return 'I apologize, but I encountered an error generating a response. Please check your Gemini API key configuration and try again.'
+    console.error('Groq API error:', error)
+    return 'I apologize, but I encountered an error generating a response. Please check your Groq API key configuration and try again.'
   }
 }
 
 export async function generateJSON(prompt: string): Promise<any> {
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
-    const result = await model.generateContent(prompt + '\n\nRespond ONLY with valid JSON, no markdown code blocks or extra text.')
-    const response = await result.response
-    const text = response.text().replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
-    return JSON.parse(text)
+    const chatCompletion = await groq.chat.completions.create({
+      messages: [{ role: 'user', content: prompt + '\n\nRespond ONLY with valid JSON, no markdown code blocks or extra text.' }],
+      model: 'llama-3.1-8b-instant',
+      response_format: { type: 'json_object' },
+    })
+    
+    const text = chatCompletion.choices[0]?.message?.content || '{}'
+    const cleanText = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
+    return JSON.parse(cleanText)
   } catch (error: any) {
-    console.error('Gemini JSON error:', error)
+    console.error('Groq JSON error:', error)
     return null
   }
 }
